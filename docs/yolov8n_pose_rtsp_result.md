@@ -1,4 +1,4 @@
-# YOLOv8n-pose RTSP Live Demo
+# YOLOv8n-pose RTSP + ByteTrack Live Demo
 
 작성일: 2026-07-08
 
@@ -9,6 +9,7 @@
 - RTSP: `rtsp://cmpark:cmpark12@192.168.10.111:554/stream1`
 - Model: `yolov8n-pose.rknn`
 - Display: Orange Pi HDMI monitor
+- Tracking: ByteTrack-style two-stage IoU matching
 
 ## 수정 내용
 
@@ -29,6 +30,9 @@ cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
 
 을 추가했다.
 
+추가로 pose 결과의 사람 bounding box를 ByteTrack-style tracker에 넣어, 같은 사람에게 가능한 한 같은 ID를 유지하도록 했다.
+매칭된 track에는 skeleton keypoints를 같이 저장하므로 화면에는 bbox, ID, pose skeleton, foot trail이 함께 표시된다.
+
 ## 실행 명령
 
 ```bash
@@ -48,6 +52,13 @@ PID 6550
 ./rknn_yolov8_pose_demo model/yolov8n-pose.rknn rtsp://cmpark:cmpark12@192.168.10.111:554/stream1
 ```
 
+현재 ByteTrack 추가 버전:
+
+```text
+PID 8768
+./rknn_yolov8_pose_demo model/yolov8n-pose.rknn rtsp://cmpark:cmpark12@192.168.10.111:554/stream1
+```
+
 ## 성능
 
 최근 로그 기준:
@@ -60,10 +71,19 @@ post_process: 약 0.2 ~ 0.6 ms
 
 실제 화면 표시 FPS는 카메라 RTSP 입력 15 FPS와 OpenCV 표시 영향으로 제한될 수 있다.
 
+ByteTrack 추가 후 요약 로그 예:
+
+```text
+pose_bytetrack frame=750 high=2 low=0 tracks=2 visible=2
+rknn_run time=20~30 ms 중심
+```
+
 ## 저장 파일
 
 - `source/main_camera.cc`
 - `yolov8n_pose_display_capture.png`
+- `yolov8n_pose_bytetrack_capture.png`
 - `yolov8n_pose_live.log`
 - `yolov8n_pose_perf_only.log`
+- `yolov8n_pose_bytetrack_summary.log`
 - `yolov8n_pose_rtsp_result.md`

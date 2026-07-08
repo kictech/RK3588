@@ -65,7 +65,7 @@ space_analysis/render_space_infographic.py
 - track CSV를 zone별 체류시간/방문수/이동흐름으로 집계
 - 집계 결과를 캡처 맵 위 인포그래픽 PNG로 렌더링
 
-### YOLOv8n-pose RTSP demo
+### YOLOv8n-pose RTSP + ByteTrack demo
 
 파일:
 
@@ -77,7 +77,8 @@ src/yolov8-pose/main_camera.cc
 
 - Tapo RTSP 카메라 입력 지원
 - OpenCV FFMPEG 입력 및 `CAP_PROP_BUFFERSIZE=1` 설정
-- HDMI 모니터에 pose skeleton 실시간 표시
+- pose bounding box 기반 ByteTrack-style ID 추적
+- HDMI 모니터에 pose skeleton, bbox, ID, trail 실시간 표시
 - 결과 화면 캡처와 NPU inference 로그 저장
 
 ## 성능 메모
@@ -92,8 +93,8 @@ ByteTrack + UDP low-latency + latest-frame reader 기준:
 YOLOv8n-pose NPU inference 로그 기준:
 
 ```text
-rknn_run time 약 21~27 ms
-NPU inference 기준 약 36~46 FPS
+rknn_run time 약 20~30 ms 중심, 일부 35~41 ms
+NPU inference 기준 약 33~48 FPS 중심
 실제 표시 속도는 RTSP 카메라 입력 FPS에 의해 제한
 ```
 
@@ -109,6 +110,7 @@ results/summaries/
 - ByteTrack 결과 화면
 - UDP low-latency 결과 화면
 - static suppression 결과 화면
+- YOLOv8n-pose + ByteTrack 결과 화면
 - 공간 분석 인포그래픽
 - 10분 집계 JSON/Markdown
 
