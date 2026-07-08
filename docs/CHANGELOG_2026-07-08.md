@@ -8,6 +8,7 @@
 - Camera IP: `192.168.10.111`
 - RTSP: `rtsp://cmpark:cmpark12@192.168.10.111:554/stream1`
 - Model: `yolov8n_runtime152.rknn`
+- Pose model: `yolov8n-pose.rknn`
 
 ## 오늘 반영한 주요 코드
 
@@ -64,6 +65,21 @@ space_analysis/render_space_infographic.py
 - track CSV를 zone별 체류시간/방문수/이동흐름으로 집계
 - 집계 결과를 캡처 맵 위 인포그래픽 PNG로 렌더링
 
+### YOLOv8n-pose RTSP demo
+
+파일:
+
+```text
+src/yolov8-pose/main_camera.cc
+```
+
+주요 기능:
+
+- Tapo RTSP 카메라 입력 지원
+- OpenCV FFMPEG 입력 및 `CAP_PROP_BUFFERSIZE=1` 설정
+- HDMI 모니터에 pose skeleton 실시간 표시
+- 결과 화면 캡처와 NPU inference 로그 저장
+
 ## 성능 메모
 
 ByteTrack + UDP low-latency + latest-frame reader 기준:
@@ -71,6 +87,14 @@ ByteTrack + UDP low-latency + latest-frame reader 기준:
 ```text
 약 14~15 FPS
 카메라 입력 15 FPS에 근접
+```
+
+YOLOv8n-pose NPU inference 로그 기준:
+
+```text
+rknn_run time 약 21~27 ms
+NPU inference 기준 약 36~46 FPS
+실제 표시 속도는 RTSP 카메라 입력 FPS에 의해 제한
 ```
 
 ## 결과 파일
