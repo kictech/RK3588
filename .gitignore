@@ -1,0 +1,19 @@
+*.log
+*.tmp
+*.bak
+__pycache__/
+.DS_Store
+Thumbs.db
+
+# Build/install outputs copied from rknn_model_zoo should not be committed.
+build/
+install/
+*.so
+*.a
+*.o
+*.exe
+
+# Large raw video outputs
+*.mp4
+*.avi
+*.mkv

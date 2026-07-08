@@ -1,0 +1,429 @@
+// YOLOv8n live display + tracking IDs + heatmap overlay for RK3588.
+//
+// Usage:
+//   ./rknn_yolov8_tracker_heatmap_live_demo model/yolov8n_runtime152.rknn rtsp://user:pass@ip:554/stream1
+
+#include <algorithm>
+#include <chrono>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <vector>
+
+#include <opencv2/opencv.hpp>
+
+#include "yolov8.h"
+
+struct Detection
+{
+    cv::Rect2f box;
+    int cls_id;
+    float score;
+};
+
+struct Track
+{
+    int id;
+    cv::Rect2f box;
+    int cls_id;
+    float score;
+    int age;
+    int missed;
+    std::vector<cv::Point> trail;
+};
+
+static volatile sig_atomic_t g_running = 1;
+static int g_next_track_id = 1;
+
+static void handle_signal(int)
+{
+    g_running = 0;
+}
+
+static bool parse_camera_index(const char *arg, int *index)
+{
+    if (strncmp(arg, "/dev/video", 10) == 0)
+    {
+        *index = atoi(arg + 10);
+        return true;
+    }
+
+    char *end = NULL;
+    long value = strtol(arg, &end, 10);
+    if (end != arg && *end == '\0' && value >= 0)
+    {
+        *index = (int)value;
+        return true;
+    }
+
+    return false;
+}
+
+static float iou(const cv::Rect2f &a, const cv::Rect2f &b)
+{
+    float inter = (a & b).area();
+    float uni = a.area() + b.area() - inter;
+    return uni > 0.0f ? inter / uni : 0.0f;
+}
+
+static cv::Point foot_point(const cv::Rect2f &box)
+{
+    return cv::Point((int)(box.x + box.width * 0.5f), (int)(box.y + box.height));
+}
+
+static cv::Scalar track_color(int id)
+{
+    static const cv::Scalar colors[] = {
+        cv::Scalar(255, 120, 40), cv::Scalar(80, 220, 120),
+        cv::Scalar(80, 180, 255), cv::Scalar(230, 120, 255),
+        cv::Scalar(255, 220, 60), cv::Scalar(120, 255, 255),
+        cv::Scalar(255, 90, 120), cv::Scalar(180, 255, 90)};
+    return colors[id % (sizeof(colors) / sizeof(colors[0]))];
+}
+
+static void update_tracks(std::vector<Track> &tracks, const std::vector<Detection> &detections)
+{
+    const float iou_threshold = 0.30f;
+    const int max_missed = 15;
+
+    std::vector<int> det_assigned(detections.size(), 0);
+    std::vector<int> track_assigned(tracks.size(), 0);
+
+    struct Match
+    {
+        int track;
+        int det;
+        float score;
+    };
+
+    std::vector<Match> candidates;
+    for (size_t t = 0; t < tracks.size(); ++t)
+    {
+        for (size_t d = 0; d < detections.size(); ++d)
+        {
+            if (tracks[t].cls_id != detections[d].cls_id)
+            {
+                continue;
+            }
+            float score = iou(tracks[t].box, detections[d].box);
+            if (score >= iou_threshold)
+            {
+                candidates.push_back({(int)t, (int)d, score});
+            }
+        }
+    }
+
+    std::sort(candidates.begin(), candidates.end(), [](const Match &a, const Match &b) {
+        return a.score > b.score;
+    });
+
+    for (const Match &m : candidates)
+    {
+        if (track_assigned[m.track] || det_assigned[m.det])
+        {
+            continue;
+        }
+
+        Track &track = tracks[m.track];
+        track.box = detections[m.det].box;
+        track.cls_id = detections[m.det].cls_id;
+        track.score = detections[m.det].score;
+        track.age++;
+        track.missed = 0;
+        track.trail.push_back(foot_point(track.box));
+        if (track.trail.size() > 80)
+        {
+            track.trail.erase(track.trail.begin());
+        }
+
+        track_assigned[m.track] = 1;
+        det_assigned[m.det] = 1;
+    }
+
+    for (size_t t = 0; t < tracks.size(); ++t)
+    {
+        if (!track_assigned[t])
+        {
+            tracks[t].missed++;
+        }
+    }
+
+    for (size_t d = 0; d < detections.size(); ++d)
+    {
+        if (det_assigned[d])
+        {
+            continue;
+        }
+
+        Track track;
+        track.id = g_next_track_id++;
+        track.box = detections[d].box;
+        track.cls_id = detections[d].cls_id;
+        track.score = detections[d].score;
+        track.age = 1;
+        track.missed = 0;
+        track.trail.push_back(foot_point(track.box));
+        tracks.push_back(track);
+    }
+
+    tracks.erase(std::remove_if(tracks.begin(), tracks.end(), [max_missed](const Track &track) {
+        return track.missed > max_missed;
+    }), tracks.end());
+}
+
+static void add_tracks_to_heatmap(cv::Mat &heatmap, const std::vector<Track> &tracks,
+                                  const cv::Size &frame_size)
+{
+    const float add_value = 8.0f;
+    const float sx = heatmap.cols / (float)frame_size.width;
+    const float sy = heatmap.rows / (float)frame_size.height;
+
+    for (const Track &track : tracks)
+    {
+        if (track.missed > 0)
+        {
+            continue;
+        }
+
+        cv::Point p = foot_point(track.box);
+        cv::Point hp((int)(p.x * sx), (int)(p.y * sy));
+        if (hp.x >= 0 && hp.x < heatmap.cols && hp.y >= 0 && hp.y < heatmap.rows)
+        {
+            cv::circle(heatmap, hp, 5, cv::Scalar(add_value), -1, cv::LINE_AA);
+        }
+    }
+}
+
+static void overlay_heatmap(cv::Mat &frame, const cv::Mat &heatmap)
+{
+    cv::Mat blurred;
+    cv::GaussianBlur(heatmap, blurred, cv::Size(0, 0), 2.2);
+
+    double max_value = 0.0;
+    cv::minMaxLoc(blurred, NULL, &max_value);
+    if (max_value < 1.0)
+    {
+        return;
+    }
+
+    cv::Mat normalized;
+    cv::Mat heat_u8;
+    cv::Mat heat_color;
+    blurred.convertTo(normalized, CV_32F, 255.0 / max_value);
+    normalized.convertTo(heat_u8, CV_8U);
+    cv::applyColorMap(heat_u8, heat_color, cv::COLORMAP_JET);
+
+    if (heat_color.size() != frame.size())
+    {
+        cv::resize(heat_color, heat_color, frame.size(), 0, 0, cv::INTER_LINEAR);
+        cv::resize(heat_u8, heat_u8, frame.size(), 0, 0, cv::INTER_LINEAR);
+    }
+
+    cv::Mat mask;
+    cv::threshold(heat_u8, mask, 20, 255, cv::THRESH_BINARY);
+
+    cv::Mat blended;
+    cv::addWeighted(frame, 0.68, heat_color, 0.32, 0.0, blended);
+    blended.copyTo(frame, mask);
+}
+
+static void draw_tracks(cv::Mat &frame, const std::vector<Track> &tracks)
+{
+    for (const Track &track : tracks)
+    {
+        if (track.missed > 0)
+        {
+            continue;
+        }
+
+        cv::Scalar color = track_color(track.id);
+        cv::rectangle(frame, track.box, color, 2);
+
+        char label[96];
+        snprintf(label, sizeof(label), "ID %d %s %.0f%%",
+                 track.id, coco_cls_to_name(track.cls_id), track.score * 100.0f);
+
+        int baseline = 0;
+        cv::Size label_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.6, 2, &baseline);
+        int x = std::max(0, (int)track.box.x);
+        int y = std::max(label_size.height + 8, (int)track.box.y);
+        cv::rectangle(frame,
+                      cv::Point(x, y - label_size.height - 8),
+                      cv::Point(std::min(frame.cols - 1, x + label_size.width + 8), y + baseline),
+                      color, -1);
+        cv::putText(frame, label, cv::Point(x + 4, y - 4),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 0, 0), 2);
+
+        for (size_t i = 1; i < track.trail.size(); ++i)
+        {
+            cv::line(frame, track.trail[i - 1], track.trail[i], color, 2);
+        }
+        cv::circle(frame, foot_point(track.box), 4, color, -1);
+    }
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 3)
+    {
+        printf("%s <model_path> <camera|rtsp|input.mp4>\n", argv[0]);
+        return -1;
+    }
+
+    const char *model_path = argv[1];
+    const char *input_arg = argv[2];
+
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+
+    rknn_app_context_t rknn_app_ctx;
+    memset(&rknn_app_ctx, 0, sizeof(rknn_app_context_t));
+
+    init_post_process();
+
+    int ret = init_yolov8_model(model_path, &rknn_app_ctx);
+    if (ret != 0)
+    {
+        printf("init_yolov8_model fail! ret=%d model_path=%s\n", ret, model_path);
+        deinit_post_process();
+        return ret;
+    }
+
+    int camera_index = 0;
+    bool input_is_camera = parse_camera_index(input_arg, &camera_index);
+
+    cv::VideoCapture cap;
+    if (input_is_camera)
+    {
+        cap.open(camera_index, cv::CAP_V4L2);
+        cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+        cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+        cap.set(cv::CAP_PROP_FPS, 30);
+    }
+    else
+    {
+        cap.open(input_arg, cv::CAP_FFMPEG);
+    }
+
+    if (!cap.isOpened())
+    {
+        printf("open input fail: %s\n", input_arg);
+        release_yolov8_model(&rknn_app_ctx);
+        deinit_post_process();
+        return -1;
+    }
+
+    const char *window_name = "RK3588 YOLOv8n Tracking Heatmap";
+    cv::namedWindow(window_name, cv::WINDOW_NORMAL);
+    cv::resizeWindow(window_name, 1280, 720);
+
+    cv::Mat bgr_frame;
+    cv::Mat rgb_frame;
+    cv::Mat heatmap;
+    object_detect_result_list od_results;
+    std::vector<Track> tracks;
+    int frame_index = 0;
+    auto fps_start = std::chrono::steady_clock::now();
+
+    printf("YOLOv8n live tracking heatmap started on %s\n", input_arg);
+
+    while (g_running)
+    {
+        if (!cap.read(bgr_frame) || bgr_frame.empty())
+        {
+            printf("input read failed\n");
+            break;
+        }
+
+        if (heatmap.empty())
+        {
+            heatmap = cv::Mat::zeros(180, 320, CV_32F);
+        }
+
+        cv::cvtColor(bgr_frame, rgb_frame, cv::COLOR_BGR2RGB);
+
+        image_buffer_t src_image;
+        memset(&src_image, 0, sizeof(image_buffer_t));
+        src_image.width = rgb_frame.cols;
+        src_image.height = rgb_frame.rows;
+        src_image.format = IMAGE_FORMAT_RGB888;
+        src_image.size = rgb_frame.total() * rgb_frame.elemSize();
+        src_image.virt_addr = rgb_frame.data;
+
+        ret = inference_yolov8_model(&rknn_app_ctx, &src_image, &od_results);
+        if (ret != 0)
+        {
+            printf("inference_yolov8_model fail! ret=%d\n", ret);
+            continue;
+        }
+
+        std::vector<Detection> detections;
+        for (int i = 0; i < od_results.count; ++i)
+        {
+            object_detect_result *det = &(od_results.results[i]);
+            if (det->cls_id != 0)
+            {
+                continue;
+            }
+
+            int x1 = std::max(0, det->box.left);
+            int y1 = std::max(0, det->box.top);
+            int x2 = std::min(rgb_frame.cols - 1, det->box.right);
+            int y2 = std::min(rgb_frame.rows - 1, det->box.bottom);
+            if (x2 > x1 && y2 > y1)
+            {
+                detections.push_back({cv::Rect2f((float)x1, (float)y1,
+                                                 (float)(x2 - x1), (float)(y2 - y1)),
+                                      det->cls_id, det->prop});
+            }
+        }
+
+        update_tracks(tracks, detections);
+        add_tracks_to_heatmap(heatmap, tracks, bgr_frame.size());
+
+        cv::Mat display = bgr_frame.clone();
+        overlay_heatmap(display, heatmap);
+        draw_tracks(display, tracks);
+
+        if (frame_index > 0 && frame_index % 30 == 0)
+        {
+            auto now = std::chrono::steady_clock::now();
+            double elapsed_sec = std::chrono::duration<double>(now - fps_start).count();
+            double max_heat = 0.0;
+            cv::minMaxLoc(heatmap, NULL, &max_heat);
+            printf("heatmap_perf frame=%d fps=%.2f detections=%zu tracks=%zu heat_max=%.1f\n",
+                   frame_index, 30.0 / elapsed_sec, detections.size(), tracks.size(), max_heat);
+            fflush(stdout);
+            fps_start = now;
+        }
+
+        char status[160];
+        snprintf(status, sizeof(status), "YOLOv8n Tracking + Heatmap  active IDs: %zu  detections: %zu",
+                 tracks.size(), detections.size());
+        cv::putText(display, status, cv::Point(20, 35),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(40, 255, 40), 2);
+
+        cv::imshow(window_name, display);
+        int key = cv::waitKey(1);
+        if (key == 'q' || key == 'Q' || key == 27)
+        {
+            break;
+        }
+        if (key == 'c' || key == 'C')
+        {
+            heatmap.setTo(0);
+            printf("heatmap cleared\n");
+            fflush(stdout);
+        }
+
+        frame_index++;
+    }
+
+    cv::destroyAllWindows();
+    release_yolov8_model(&rknn_app_ctx);
+    deinit_post_process();
+
+    return 0;
+}

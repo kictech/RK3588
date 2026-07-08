@@ -1,0 +1,151 @@
+{
+  "site": "tapocamera_space",
+  "analysis_period": {
+    "start": "2026-07-07 18:19:51",
+    "end": "2026-07-07 18:30:38"
+  },
+  "summary": {
+    "visible_rows": 28405,
+    "raw_rows": 29678,
+    "unique_tracks": 20,
+    "max_people": 5,
+    "average_people": 3.0,
+    "frame_count": 9468
+  },
+  "zones": [
+    {
+      "zone_id": "zone_2",
+      "name": "책상_2",
+      "visit_count": 30,
+      "total_dwell_sec": 7805.0,
+      "visible_rows": 7805
+    },
+    {
+      "zone_id": "zone_3",
+      "name": "책상_3",
+      "visit_count": 44,
+      "total_dwell_sec": 6486.0,
+      "visible_rows": 6486
+    },
+    {
+      "zone_id": "zone_1",
+      "name": "책상_1",
+      "visit_count": 144,
+      "total_dwell_sec": 5821.0,
+      "visible_rows": 5821
+    },
+    {
+      "zone_id": "unknown",
+      "name": "unknown",
+      "visit_count": 254,
+      "total_dwell_sec": 5245.0,
+      "visible_rows": 5245
+    },
+    {
+      "zone_id": "zone_5",
+      "name": "책상_5",
+      "visit_count": 37,
+      "total_dwell_sec": 2733.0,
+      "visible_rows": 2733
+    },
+    {
+      "zone_id": "zone_7",
+      "name": "통로",
+      "visit_count": 12,
+      "total_dwell_sec": 237.0,
+      "visible_rows": 237
+    },
+    {
+      "zone_id": "zone_6",
+      "name": "책상_6",
+      "visit_count": 2,
+      "total_dwell_sec": 78.0,
+      "visible_rows": 78
+    }
+  ],
+  "movement_flows": [
+    {
+      "from": "zone_7",
+      "from_name": "통로",
+      "to": "zone_2",
+      "to_name": "책상_2",
+      "count": 2
+    },
+    {
+      "from": "zone_2",
+      "from_name": "책상_2",
+      "to": "zone_7",
+      "to_name": "통로",
+      "count": 2
+    },
+    {
+      "from": "zone_7",
+      "from_name": "통로",
+      "to": "zone_6",
+      "to_name": "책상_6",
+      "count": 2
+    },
+    {
+      "from": "zone_6",
+      "from_name": "책상_6",
+      "to": "zone_7",
+      "to_name": "통로",
+      "count": 2
+    },
+    {
+      "from": "zone_7",
+      "from_name": "통로",
+      "to": "zone_1",
+      "to_name": "책상_1",
+      "count": 2
+    },
+    {
+      "from": "zone_1",
+      "from_name": "책상_1",
+      "to": "zone_7",
+      "to_name": "통로",
+      "count": 1
+    },
+    {
+      "from": "zone_7",
+      "from_name": "통로",
+      "to": "zone_3",
+      "to_name": "책상_3",
+      "count": 1
+    },
+    {
+      "from": "zone_3",
+      "from_name": "책상_3",
+      "to": "zone_2",
+      "to_name": "책상_2",
+      "count": 1
+    },
+    {
+      "from": "zone_7",
+      "from_name": "통로",
+      "to": "zone_5",
+      "to_name": "책상_5",
+      "count": 1
+    },
+    {
+      "from": "zone_5",
+      "from_name": "책상_5",
+      "to": "zone_7",
+      "to_name": "통로",
+      "count": 1
+    },
+    {
+      "from": "zone_1",
+      "from_name": "책상_1",
+      "to": "zone_5",
+      "to_name": "책상_5",
+      "count": 1
+    }
+  ],
+  "privacy_policy": {
+    "face_recognition": false,
+    "raw_video_storage": false,
+    "person_id_type": "temporary_tracking_id",
+    "stored_data": "coordinates, zones, dwell time, movement flow statistics"
+  }
+}

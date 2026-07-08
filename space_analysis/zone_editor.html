@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Zone Editor</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --text: #17202a;
+      --muted: #657080;
+      --line: #d8dee8;
+      --accent: #0b7fab;
+      --danger: #b83232;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      min-height: 100vh;
+    }
+
+    aside {
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      padding: 16px;
+      overflow: auto;
+    }
+
+    main {
+      padding: 16px;
+      overflow: auto;
+    }
+
+    h1 {
+      font-size: 20px;
+      margin: 0 0 12px;
+    }
+
+    h2 {
+      font-size: 15px;
+      margin: 20px 0 8px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin: 10px 0 4px;
+    }
+
+    input, textarea, button {
+      font: inherit;
+    }
+
+    input[type="text"], input[type="file"], textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: #fff;
+    }
+
+    textarea {
+      min-height: 180px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      border-radius: 6px;
+      padding: 8px 10px;
+      cursor: pointer;
+    }
+
+    button:hover { border-color: var(--accent); }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    button.danger {
+      color: var(--danger);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .stage {
+      position: relative;
+      display: inline-block;
+      background: #111;
+      border: 1px solid var(--line);
+      max-width: 100%;
+    }
+
+    canvas {
+      display: block;
+      max-width: min(100%, calc(100vw - 390px));
+      height: auto;
+      cursor: crosshair;
+    }
+
+    .zone-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .zone-item {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: #fafbfc;
+      font-size: 13px;
+    }
+
+    .zone-item strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; }
+      aside { border-right: 0; border-bottom: 1px solid var(--line); }
+      canvas { max-width: calc(100vw - 32px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <h1>Zone Editor</h1>
+      <p class="hint">
+        캡처 이미지를 불러온 뒤 구역 꼭짓점을 클릭하세요.
+        브라우저에 축소되어 보여도 저장 좌표는 원본 이미지 좌표로 환산됩니다.
+      </p>
+
+      <label for="imageInput">캡처 이미지</label>
+      <input id="imageInput" type="file" accept="image/*" />
+
+      <div class="row">
+        <div>
+          <label for="zoneId">Zone ID</label>
+          <input id="zoneId" type="text" value="entrance" />
+        </div>
+        <div>
+          <label for="zoneName">이름</label>
+          <input id="zoneName" type="text" value="출입구" />
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <button id="undoPointBtn">점 되돌리기</button>
+        <button id="clearPointsBtn">현재 점 지우기</button>
+        <button id="saveZoneBtn" class="primary">구역 저장</button>
+      </div>
+
+      <div class="toolbar">
+        <button id="deleteLastZoneBtn" class="danger">마지막 구역 삭제</button>
+        <button id="downloadBtn" class="primary">zones.json 다운로드</button>
+      </div>
+
+      <h2>현재 구역</h2>
+      <div id="pointInfo" class="small">점 0개</div>
+
+      <h2>저장된 구역</h2>
+      <div id="zoneList" class="zone-list"></div>
+
+      <h2>JSON 미리보기</h2>
+      <textarea id="jsonPreview" readonly></textarea>
+    </aside>
+
+    <main>
+      <div class="stage">
+        <canvas id="canvas" width="1280" height="720"></canvas>
+      </div>
+      <p class="hint">
+        사용법: 이미지 위 클릭으로 polygon 점 추가 → 구역 저장 → Zone ID/이름 바꿔 다음 구역 추가 → 다운로드.
+      </p>
+    </main>
+  </div>
+
+  <script>
+    const imageInput = document.getElementById("imageInput");
+    const zoneIdInput = document.getElementById("zoneId");
+    const zoneNameInput = document.getElementById("zoneName");
+    const undoPointBtn = document.getElementById("undoPointBtn");
+    const clearPointsBtn = document.getElementById("clearPointsBtn");
+    const saveZoneBtn = document.getElementById("saveZoneBtn");
+    const deleteLastZoneBtn = document.getElementById("deleteLastZoneBtn");
+    const downloadBtn = document.getElementById("downloadBtn");
+    const pointInfo = document.getElementById("pointInfo");
+    const zoneList = document.getElementById("zoneList");
+    const jsonPreview = document.getElementById("jsonPreview");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    let image = null;
+    let currentPoints = [];
+    let zones = [];
+    let frameSize = { width: canvas.width, height: canvas.height };
+
+    const colors = [
+      "#ff6b35", "#00a6a6", "#7b61ff", "#2fb344",
+      "#f59f00", "#d6336c", "#1971c2", "#5c940d"
+    ];
+
+    function nextZoneId() {
+      return `zone_${zones.length + 1}`;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (image) {
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.fillStyle = "#20242b";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#dce2ea";
+        ctx.font = "24px system-ui";
+        ctx.fillText("캡처 이미지를 선택하세요", 32, 52);
+      }
+
+      zones.forEach((zone, index) => drawPolygon(zone.polygon, colors[index % colors.length], zone.name, true));
+      drawPolygon(currentPoints, "#ffffff", "현재", false);
+      updateUi();
+    }
+
+    function drawPolygon(points, color, label, closed) {
+      if (!points.length) return;
+      ctx.save();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color + "33";
+      ctx.beginPath();
+      ctx.moveTo(points[0][0], points[0][1]);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+      if (closed && points.length >= 3) {
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.stroke();
+
+      points.forEach(([x, y], index) => {
+        ctx.beginPath();
+        ctx.arc(x, y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.fillStyle = "#000";
+        ctx.font = "12px system-ui";
+        ctx.fillText(String(index + 1), x + 8, y - 8);
+      });
+
+      if (label && points.length) {
+        const [x, y] = points[0];
+        ctx.fillStyle = color;
+        ctx.font = "18px system-ui";
+        ctx.fillText(label, x + 10, y + 24);
+      }
+      ctx.restore();
+    }
+
+    function canvasPointFromEvent(event) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      return [
+        Math.round((event.clientX - rect.left) * scaleX),
+        Math.round((event.clientY - rect.top) * scaleY)
+      ];
+    }
+
+    function buildZonesJson() {
+      return {
+        site: "tapocamera_space",
+        frame_size: frameSize,
+        zones
+      };
+    }
+
+    function updateUi() {
+      pointInfo.textContent = `점 ${currentPoints.length}개`;
+      zoneList.innerHTML = "";
+      zones.forEach((zone, index) => {
+        const item = document.createElement("div");
+        item.className = "zone-item";
+        item.innerHTML = `<strong style="color:${colors[index % colors.length]}">${zone.name} (${zone.id})</strong>` +
+          `<span class="small">${zone.polygon.length} points</span>`;
+        zoneList.appendChild(item);
+      });
+      jsonPreview.value = JSON.stringify(buildZonesJson(), null, 2);
+    }
+
+    imageInput.addEventListener("change", () => {
+      const file = imageInput.files && imageInput.files[0];
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        image = img;
+        frameSize = { width: img.naturalWidth, height: img.naturalHeight };
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        URL.revokeObjectURL(url);
+        draw();
+      };
+      img.src = url;
+    });
+
+    canvas.addEventListener("click", (event) => {
+      if (!image) return;
+      currentPoints.push(canvasPointFromEvent(event));
+      draw();
+    });
+
+    undoPointBtn.addEventListener("click", () => {
+      currentPoints.pop();
+      draw();
+    });
+
+    clearPointsBtn.addEventListener("click", () => {
+      currentPoints = [];
+      draw();
+    });
+
+    saveZoneBtn.addEventListener("click", () => {
+      if (currentPoints.length < 3) {
+        alert("구역은 최소 3개 점이 필요합니다.");
+        return;
+      }
+      const id = zoneIdInput.value.trim() || nextZoneId();
+      const name = zoneNameInput.value.trim() || id;
+      zones.push({ id, name, polygon: currentPoints });
+      currentPoints = [];
+      zoneIdInput.value = nextZoneId();
+      zoneNameInput.value = "";
+      draw();
+    });
+
+    deleteLastZoneBtn.addEventListener("click", () => {
+      zones.pop();
+      draw();
+    });
+
+    downloadBtn.addEventListener("click", () => {
+      const blob = new Blob([JSON.stringify(buildZonesJson(), null, 2) + "\n"], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "zones.json";
+      document.body.appendChild(a);
+      a.click();
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    });
+
+    draw();
+  </script>
+</body>
+</html>
